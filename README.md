@@ -1,4 +1,10 @@
 <p align="center">
+  <a href="README-zh_CN.md">简体中文</a> •
+  <a href="README-zh_TW.md">繁體中文</a> •
+  <a href="README.md">English</a>
+</p>
+
+<p align="center">
   <img src="static/icon.svg" alt="OpenClaw Auto Manager" width="120"/>
 </p>
 
