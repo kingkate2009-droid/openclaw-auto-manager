@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title data-i18n="app.title">{{ t('app.title') }}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <h1 data-i18n="app.title">{{ t('app.title') }}</h1>
+    </div>
+    <nav>
+      <a class="active" href="#" data-view="vendors" data-i18n="nav.vendors">{{ t('nav.vendors') }}</a>
+      <a href="#" data-view="gateway" data-i18n="nav.gateway">{{ t('nav.gateway') }}</a>
+    </nav>
+    <div class="gateway-status" id="gatewayMiniStatus">
+      <span class="status-dot unknown"></span>
+      <span><span data-i18n="gateway.status">{{ t('gateway.status') }}</span> <span id="gatewayMiniText" data-i18n="gateway.checking">{{ t('gateway.checking') }}</span></span>
+    </div>
+  </aside>
+
+  <main>
+    <header class="toolbar">
+      <h2 id="viewTitle" data-i18n="nav.vendors">{{ t('nav.vendors') }}</h2>
+      <div class="toolbar-actions">
+        <button class="btn btn-secondary" onclick="showBatchImportModal()" data-i18n="toolbar.batchImport">{{ t('toolbar.batchImport') }}</button>
+        <button class="btn btn-secondary" onclick="syncFromOpenclaw()" data-i18n="toolbar.sync">{{ t('toolbar.sync') }}</button>
+        <button class="btn btn-secondary" onclick="checkAllHealth()" data-i18n="toolbar.checkAllHealth">{{ t('toolbar.checkAllHealth') }}</button>
+        <button class="btn btn-primary" onclick="showAddVendorModal()" data-i18n="toolbar.addVendor">{{ t('toolbar.addVendor') }}</button>
+        <select class="lang-select" id="langSelect" onchange="switchLang(this.value)">
+          <option value="en" {% if lang == 'en' %}selected{% endif %}>{{ t('lang.en') }}</option>
+          <option value="zh-CN" {% if lang == 'zh-CN' %}selected{% endif %}>{{ t('lang.zhCN') }}</option>
+          <option value="zh-TW" {% if lang == 'zh-TW' %}selected{% endif %}>{{ t('lang.zhTW') }}</option>
+        </select>
+        <button class="btn btn-sm" id="themeToggle" onclick="toggleTheme()">{{ t('theme.dark') }}</button>
+      </div>
+    </header>
+
+    <div class="view active" id="view-vendors">
+      <div class="master-detail">
+        <div class="master-panel">
+          <div class="master-header">
+            <span data-i18n="vendorList.title">{{ t('vendorList.title') }}</span>
+          </div>
+          <div id="vendorList" class="vendor-list"></div>
+        </div>
+        <div class="detail-panel">
+          <div id="keyDetail">
+            <div class="detail-header">
+              <h3 id="detailVendorName"></h3>
+              <code id="detailVendorUrl" class="vendor-url"></code>
+              <button class="btn-copy" onclick="copyText(_currentVendor.api_url)" title="Copy API URL">&#x2398;</button>
+              <div class="detail-actions">
+                <button class="btn btn-sm btn-primary" id="addKeyBtn" onclick="showAddKeyModal()" data-i18n="keyList.addKey" style="display:none">{{ t('keyList.addKey') }}</button>
+              </div>
+            </div>
+            <div id="keyTableContainer">
+              <div class="key-toolbar">
+                <input type="text" id="keySearch" oninput="filterKeys()" data-i18n-placeholder="keySearch.placeholder" placeholder="{{ t('keySearch.placeholder') }}">
+                <select id="keyFilter" onchange="filterKeys()">
+                  <option value="all" data-i18n="keyFilter.all">{{ t('keyFilter.all') }}</option>
+                  <option value="healthy" data-i18n="keyFilter.healthy">{{ t('keyFilter.healthy') }}</option>
+                  <option value="unhealthy" data-i18n="keyFilter.unhealthy">{{ t('keyFilter.unhealthy') }}</option>
+                  <option value="disabled" data-i18n="keyFilter.disabled">{{ t('keyFilter.disabled') }}</option>
+                </select>
+                <div id="batchActions" class="batch-actions" style="display:none">
+                  <button class="btn btn-sm" onclick="batchAction('enable')" data-i18n="action.batchEnable">{{ t('action.batchEnable') }}</button>
+                  <button class="btn btn-sm btn-warning" onclick="batchAction('disable')" data-i18n="action.batchDisable">{{ t('action.batchDisable') }}</button>
+                  <button class="btn btn-sm btn-danger" onclick="batchAction('delete')" data-i18n="action.batchDelete">{{ t('action.batchDelete') }}</button>
+                  <span id="batchCount" class="batch-count"></span>
+                </div>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th class="col-check"><input type="checkbox" id="selectAllCheck" onchange="toggleSelectAll()"></th>
+                    <th data-i18n="table.keyName">{{ t('table.keyName') }}</th>
+                    <th data-i18n="table.apiKey">{{ t('table.apiKey') }}</th>
+                    <th data-i18n="table.status">{{ t('table.status') }}</th>
+                    <th data-i18n="table.latency">{{ t('table.latency') }}</th>
+                    <th data-i18n="table.actions">{{ t('table.actions') }}</th>
+                  </tr>
+                </thead>
+                <tbody id="keysBody"></tbody>
+              </table>
+            </div>
+            <div id="noVendorSelected" class="empty-state">
+              <p data-i18n="vendorList.selectHint">{{ t('vendorList.selectHint') }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="view-gateway">
+      <div class="gateway-panel">
+        <div class="card">
+          <h3 data-i18n="gatewayPanel.title">{{ t('gatewayPanel.title') }}</h3>
+          <div class="form-group" style="margin-bottom:16px">
+            <label data-i18n="gatewayPanel.mode">{{ t('gatewayPanel.mode') }}</label>
+            <select id="gatewayMode" onchange="onGatewayModeChange()">
+              <option value="local">{{ t('gatewayPanel.local') }}</option>
+              <option value="remote">{{ t('gatewayPanel.remote') }}</option>
+            </select>
+          </div>
+
+          <!-- Local mode -->
+          <div id="gatewayLocal">
+            <div id="gatewayStatusContent">
+              <div class="status-line"><span class="label" data-i18n="gatewayPanel.running">{{ t('gatewayPanel.running') }}</span> <span id="gRunning">-</span></div>
+              <div class="status-line"><span class="label" data-i18n="gatewayPanel.port">{{ t('gatewayPanel.port') }}</span> <span id="gPort">-</span></div>
+              <div class="status-line"><span class="label" data-i18n="gatewayPanel.message">{{ t('gatewayPanel.message') }}</span> <span id="gMessage">-</span></div>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-secondary" onclick="refreshGatewayStatus()" data-i18n="gatewayPanel.refresh">{{ t('gatewayPanel.refresh') }}</button>
+              <button class="btn btn-warning" onclick="restartGateway()" data-i18n="gatewayPanel.restart">{{ t('gatewayPanel.restart') }}</button>
+            </div>
+          </div>
+
+          <!-- Remote mode -->
+          <div id="gatewayRemote" style="display:none">
+            <div class="form-group">
+              <label data-i18n="gatewayPanel.remoteType">{{ t('gatewayPanel.remoteType') }}</label>
+              <select id="remoteType" onchange="onRemoteTypeChange()">
+                <option value="ssh">SSH</option>
+                <option value="gateway">Gateway API</option>
+              </select>
+            </div>
+            <div id="remoteSshFields">
+              <div class="form-group">
+                <label data-i18n="connModal.host">{{ t('connModal.host') }}</label>
+                <input type="text" id="remoteHost" placeholder="192.168.1.100">
+              </div>
+              <div class="form-group">
+                <label data-i18n="connModal.port">{{ t('connModal.port') }}</label>
+                <input type="number" id="remotePort" value="22">
+              </div>
+              <div class="form-group">
+                <label data-i18n="connModal.user">{{ t('connModal.user') }}</label>
+                <input type="text" id="remoteUser" placeholder="root">
+              </div>
+              <div class="form-group">
+                <label data-i18n="connModal.keyFile">{{ t('connModal.keyFile') }}</label>
+                <input type="text" id="remoteKeyFile" placeholder="~/.ssh/id_rsa">
+              </div>
+              <div class="form-group">
+                <label data-i18n="connModal.configPath">{{ t('connModal.configPath') }}</label>
+                <input type="text" id="remoteConfigPath" value="~/.openclaw">
+              </div>
+            </div>
+            <div id="remoteGatewayFields" style="display:none">
+              <div class="form-group">
+                <label data-i18n="connModal.gatewayUrl">{{ t('connModal.gatewayUrl') }}</label>
+                <input type="text" id="remoteUrl" placeholder="ws://192.168.1.100:18789">
+              </div>
+              <div class="form-group">
+                <label data-i18n="connModal.token">{{ t('connModal.token') }}</label>
+                <input type="password" id="remoteToken" placeholder="Optional">
+              </div>
+            </div>
+            <div class="card-actions">
+              <button class="btn btn-secondary" onclick="testRemoteGateway()" data-i18n="connAction.test">{{ t('connAction.test') }}</button>
+              <button class="btn btn-primary" onclick="saveRemoteGateway()" data-i18n="modal.save">{{ t('modal.save') }}</button>
+            </div>
+            <div id="remoteResult" style="display:none" class="conn-result"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+      <div class="gateway-panel">
+        <div class="card">
+          <h3 data-i18n="gatewayPanel.title">{{ t('gatewayPanel.title') }}</h3>
+          <div id="gatewayStatusContent">
+            <div class="status-line"><span class="label" data-i18n="gatewayPanel.running">{{ t('gatewayPanel.running') }}</span> <span id="gRunning">-</span></div>
+            <div class="status-line"><span class="label" data-i18n="gatewayPanel.port">{{ t('gatewayPanel.port') }}</span> <span id="gPort">-</span></div>
+            <div class="status-line"><span class="label" data-i18n="gatewayPanel.message">{{ t('gatewayPanel.message') }}</span> <span id="gMessage">-</span></div>
+          </div>
+          <div class="card-actions">
+            <button class="btn btn-secondary" onclick="refreshGatewayStatus()" data-i18n="gatewayPanel.refresh">{{ t('gatewayPanel.refresh') }}</button>
+            <button class="btn btn-warning" onclick="restartGateway()" data-i18n="gatewayPanel.restart">{{ t('gatewayPanel.restart') }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toastContainer" class="toast-container"></div>
+
+<div class="modal-overlay" id="vendorModal" onclick="closeVendorModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="vendorModalTitle" data-i18n="vendorModal.addTitle">{{ t('vendorModal.addTitle') }}</h3>
+      <button class="btn-close" onclick="closeVendorModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editVendorId">
+      <div class="form-group">
+        <label for="vendorName" data-i18n="vendorModal.name">{{ t('vendorModal.name') }}</label>
+        <input type="text" id="vendorName" data-i18n-placeholder="vendorModal.placeholderName" placeholder="{{ t('vendorModal.placeholderName') }}">
+      </div>
+      <div class="form-group">
+        <label for="vendorProviderSelect" data-i18n="vendorModal.provider">{{ t('vendorModal.provider') }}</label>
+        <select id="vendorProviderSelect" onchange="onProviderSelectChange()">
+          <option value="" data-i18n="vendorModal.selectProvider">{{ t('vendorModal.selectProvider') }}</option>
+        </select>
+        <input type="text" id="vendorProvider" placeholder="e.g. openai" style="display:none;margin-top:6px">
+      </div>
+      <div class="form-group">
+        <label for="vendorApiUrl" data-i18n="vendorModal.apiUrl">{{ t('vendorModal.apiUrl') }}</label>
+        <input type="text" id="vendorApiUrl" placeholder="https://api.openai.com/v1">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeVendorModal()" data-i18n="modal.cancel">{{ t('modal.cancel') }}</button>
+      <button class="btn btn-primary" onclick="saveVendor()" data-i18n="modal.save">{{ t('modal.save') }}</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="keyModal" onclick="closeKeyModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="keyModalTitle" data-i18n="keyModal.addTitle">{{ t('keyModal.addTitle') }}</h3>
+      <button class="btn-close" onclick="closeKeyModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editKeyId">
+      <div class="form-group">
+        <label for="keyName" data-i18n="keyModal.name">{{ t('keyModal.name') }}</label>
+        <input type="text" id="keyName" data-i18n-placeholder="keyModal.placeholderName" placeholder="{{ t('keyModal.placeholderName') }}">
+      </div>
+      <div class="form-group">
+        <label for="keyApiKey" data-i18n="keyModal.apiKey">{{ t('keyModal.apiKey') }}</label>
+        <div class="input-with-toggle">
+          <input type="password" id="keyApiKey" data-i18n-placeholder="keyModal.placeholderApiKey" placeholder="{{ t('keyModal.placeholderApiKey') }}">
+          <button class="btn-toggle" id="toggleKeyBtn" onclick="toggleKeyVisibility()" data-i18n="modal.show">{{ t('modal.show') }}</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeKeyModal()" data-i18n="modal.cancel">{{ t('modal.cancel') }}</button>
+      <button class="btn btn-primary" onclick="saveKey()" data-i18n="modal.save">{{ t('modal.save') }}</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="batchImportModal" onclick="closeBatchImportModal()">
+  <div class="modal modal-wide" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 data-i18n="batchImport.title">{{ t('batchImport.title') }}</h3>
+      <button class="btn-close" onclick="closeBatchImportModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="batchImportText" data-i18n="batchImport.label">{{ t('batchImport.label') }}</label>
+        <textarea id="batchImportText" rows="8" data-i18n-placeholder="batchImport.placeholder" placeholder="{{ t('batchImport.placeholder') }}"></textarea>
+      </div>
+      <div id="batchImportPreview" style="display:none">
+        <h4 data-i18n="batchImport.preview">{{ t('batchImport.preview') }}</h4>
+        <div id="batchImportTableWrap"></div>
+      </div>
+      <div id="batchImportError" class="error-message" style="display:none"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeBatchImportModal()" data-i18n="modal.cancel">{{ t('modal.cancel') }}</button>
+      <button class="btn btn-secondary" id="batchParseBtn" onclick="parseBatchImport()" data-i18n="batchImport.parse">{{ t('batchImport.parse') }}</button>
+      <button class="btn btn-primary" id="batchApplyBtn" onclick="applyBatchImport()" style="display:none" data-i18n="batchImport.import">{{ t('batchImport.import') }}</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let LOCALE_STRINGS = {};
+let currentLang = '{{ lang }}';
+let selectedVendorId = null;
+
+function _(key) { return LOCALE_STRINGS[key] || key; }
+
+function updateI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    el.textContent = _(el.getAttribute('data-i18n'));
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
+    el.placeholder = _(el.getAttribute('data-i18n-placeholder'));
+  });
+  document.title = _('app.title');
+}
+
+function $(id) { return document.getElementById(id); }
+
+async function api(path, opts) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json', ...((opts && opts.headers) || {}) },
+    ...opts,
+  });
+  if (!res.ok) return {error: res.statusText};
+  return res.json();
+}
+
+// ── Vendor List ─────────────────────────────────────────
+
+async function loadVendors() {
+  const data = await api('/api/vendors');
+  const list = $('vendorList');
+  list.innerHTML = '';
+  for (const v of data.vendors) {
+    const div = document.createElement('div');
+    div.className = 'vendor-item' + (v.id === selectedVendorId ? ' selected' : '');
+    div.dataset.vendorId = v.id;
+    div.innerHTML = '<div class="vendor-item-name">' + esc(v.name) + '</div><div class="vendor-item-url"><code>' + esc(v.api_url) + '</code></div>';
+    div.onclick = function() { selectVendor(v.id); };
+    list.appendChild(div);
+  }
+  if (selectedVendorId) {
+    var exists = data.vendors.some(function(v) { return v.id === selectedVendorId; });
+    if (exists) selectVendor(selectedVendorId);
+    else { selectedVendorId = null; showEmptyState(); }
+  } else if (data.vendors.length > 0) {
+    selectVendor(data.vendors[0].id);
+  } else {
+    showEmptyState();
+  }
+  updateGatewayMiniStatus(data);
+  updateI18n();
+}
+
+function showEmptyState() {
+  $('detailVendorName').textContent = '';
+  $('detailVendorUrl').textContent = '';
+  $('addKeyBtn').style.display = 'none';
+  $('noVendorSelected').style.display = 'block';
+  $('keyTableContainer').style.display = 'none';
+}
+
+// ── Key Detail ──────────────────────────────────────────
+
+var _allKeysData = [];
+var _allHealthData = {};
+var _currentVendor = null;
+
+async function selectVendor(id) {
+  selectedVendorId = id;
+  document.querySelectorAll('.vendor-item').forEach(function(el) { el.classList.remove('selected'); });
+  var sel = document.querySelector('.vendor-item[data-vendor-id="' + id + '"]');
+  if (sel) sel.classList.add('selected');
+
+  const data = await api('/api/vendors');
+  const v = data.vendors.find(function(x) { return x.id === id; });
+  if (!v) return;
+
+  _currentVendor = v;
+  _allKeysData = v.keys || [];
+  _allHealthData = data.health || {};
+
+  $('detailVendorName').textContent = v.name;
+  $('detailVendorUrl').textContent = v.api_url;
+  $('addKeyBtn').style.display = 'inline-block';
+  $('noVendorSelected').style.display = 'none';
+  $('keyTableContainer').style.display = 'block';
+  $('keySearch').value = '';
+  $('keyFilter').value = 'all';
+  $('selectAllCheck').checked = false;
+  $('batchActions').style.display = 'none';
+  filterKeys();
+}
+
+function filterKeys() {
+  const q = $('keySearch').value.toLowerCase().trim();
+  const f = $('keyFilter').value;
+  const tbody = $('keysBody');
+  tbody.innerHTML = '';
+
+  for (const k of _allKeysData) {
+    const ck = _currentVendor.id + ':' + k.id;
+    const h = _allHealthData[ck] || {};
+    const healthy = h.healthy;
+    const enabled = k.enabled !== false;
+    const nameMatch = !q || k.name.toLowerCase().includes(q);
+    const statusMatch = f === 'all' ||
+      (f === 'healthy' && healthy === true) ||
+      (f === 'unhealthy' && healthy === false) ||
+      (f === 'disabled' && !enabled);
+    if (!nameMatch || !statusMatch) continue;
+
+    const statusClass = healthy === true ? 'healthy' : healthy === false ? 'unhealthy' : 'unknown';
+    var statusText;
+    if (healthy === true) {
+      statusText = _('health.healthy');
+      if (h.message) statusText += ': ' + esc(h.message);
+    } else if (healthy === false) {
+      statusText = _('health.unhealthy') + ': ' + esc(h.error || '');
+    } else {
+      statusText = _('health.notChecked');
+    }
+    const latency = h.latency_ms ? h.latency_ms + 'ms' : '-';
+
+    const tr = document.createElement('tr');
+    tr.dataset.keyId = k.id;
+    if (!enabled) tr.style.opacity = '0.5';
+    tr.innerHTML = [
+      '<td class="col-check"><input type="checkbox" class="key-check" value="' + k.id + '" onchange="onCheckChange()"></td>',
+      '<td><span class="key-name">' + esc(k.name) + '</span>' + (enabled ? '' : ' <span class="badge disabled-badge" data-i18n="badge.disabled">' + _('badge.disabled') + '</span>') + '</td>',
+      '<td class="key-cell"><code class="key-value">' + esc(k.api_key.slice(0,8)) + '...' + esc(k.api_key.slice(-4)) + '</code> <button class="btn-copy" onclick="copyText(\'' + esc(k.api_key) + '\')" title="Copy">&#x2398;</button></td>',
+      '<td class="status-cell"><span class="status-dot ' + statusClass + '"></span> ' + statusText + '</td>',
+      '<td>' + latency + '</td>',
+      '<td class="actions-cell">',
+        (enabled ? '<button class="btn btn-sm btn-warning" onclick="disableKey(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.disable') + '</button>' : '<button class="btn btn-sm" onclick="enableKey(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.enable') + '</button>'),
+        '<button class="btn btn-sm" onclick="checkKeyHealth(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.check') + '</button>',
+        '<button class="btn btn-sm" onclick="editKey(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.edit') + '</button>',
+        '<button class="btn btn-sm btn-danger" onclick="deleteKey(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.delete') + '</button>',
+      '</td>',
+    ].join('');
+    tbody.appendChild(tr);
+  }
+}
+
+function onCheckChange() {
+  const checks = document.querySelectorAll('.key-check:checked');
+  const batch = $('batchActions');
+  if (checks.length > 0) {
+    batch.style.display = 'flex';
+    $('batchCount').textContent = checks.length + ' ' + _('action.selected');
+  } else {
+    batch.style.display = 'none';
+  }
+  $('selectAllCheck').checked = checks.length === document.querySelectorAll('.key-check').length;
+}
+
+function toggleSelectAll() {
+  const checked = $('selectAllCheck').checked;
+  document.querySelectorAll('.key-check').forEach(function(el) { el.checked = checked; });
+  onCheckChange();
+}
+
+async function batchAction(action) {
+  const checks = document.querySelectorAll('.key-check:checked');
+  if (checks.length === 0) return;
+  if (action === 'delete' && !confirm(_('confirm.batchDelete') + ' (' + checks.length + ')')) return;
+  const ids = Array.from(checks).map(function(el) { return el.value; });
+  const res = await api('/api/vendors/' + _currentVendor.id + '/keys/batch', {
+    method: 'POST',
+    body: JSON.stringify({key_ids: ids, action: action}),
+  });
+  loadVendors();
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(function() {
+    showToast(_('toast.copied') || 'Copied');
+  });
+}
+
+// ── Vendor Modal ────────────────────────────────────────
+
+var _knownProviders = [];
+
+async function loadProviderSelect() {
+  const data = await api('/api/providers');
+  _knownProviders = data.providers || [];
+  const sel = $('vendorProviderSelect');
+  sel.innerHTML = '<option value="" data-i18n="vendorModal.selectProvider">' + _('vendorModal.selectProvider') + '</option>';
+  for (const p of _knownProviders) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.name + ' (' + p.id + ')';
+    sel.appendChild(opt);
+  }
+  const custom = document.createElement('option');
+  custom.value = '__custom__';
+  custom.textContent = _('vendorModal.customProvider') || 'Custom...';
+  sel.appendChild(custom);
+}
+
+function onProviderSelectChange() {
+  const sel = $('vendorProviderSelect');
+  const val = sel.value;
+  const customInput = $('vendorProvider');
+  const urlInput = $('vendorApiUrl');
+  if (val === '__custom__') {
+    customInput.style.display = '';
+    customInput.value = '';
+    urlInput.value = '';
+  } else if (val) {
+    customInput.style.display = 'none';
+    const p = _knownProviders.find(function(x) { return x.id === val; });
+    customInput.value = p ? p.id : val;
+    if (p && p.base_url) urlInput.value = p.base_url;
+  } else {
+    customInput.style.display = 'none';
+    customInput.value = '';
+  }
+}
+
+function showAddVendorModal() {
+  $('vendorModalTitle').textContent = _('vendorModal.addTitle');
+  $('editVendorId').value = '';
+  $('vendorName').value = '';
+  $('vendorProviderSelect').value = '';
+  $('vendorProvider').value = '';
+  $('vendorProvider').style.display = 'none';
+  $('vendorApiUrl').value = '';
+  loadProviderSelect();
+  $('vendorModal').classList.add('open');
+}
+
+function closeVendorModal() {
+  $('vendorModal').classList.remove('open');
+}
+
+async function saveVendor() {
+  const id = $('editVendorId').value;
+  const sel = $('vendorProviderSelect');
+  const customInput = $('vendorProvider');
+  const providerVal = sel.value === '__custom__' ? customInput.value.trim() : (sel.value || customInput.value.trim());
+  const data = {
+    name: $('vendorName').value.trim(),
+    provider: providerVal || 'custom',
+    api_url: $('vendorApiUrl').value.trim(),
+  };
+  if (!data.name) { alert('Name is required'); return; }
+  if (id) {
+    await api('/api/vendors/' + id, { method: 'PUT', body: JSON.stringify(data) });
+  } else {
+    await api('/api/vendors', { method: 'POST', body: JSON.stringify(data) });
+  }
+  closeVendorModal();
+  loadVendors();
+}
+
+// ── Key Modal ───────────────────────────────────────────
+
+function showAddKeyModal() {
+  if (!selectedVendorId) return;
+  $('keyModalTitle').textContent = _('keyModal.addTitle');
+  $('editKeyId').value = '';
+  $('keyName').value = '';
+  $('keyApiKey').value = '';
+  $('keyModal').classList.add('open');
+}
+
+function closeKeyModal() {
+  $('keyModal').classList.remove('open');
+}
+
+function toggleKeyVisibility() {
+  const inp = $('keyApiKey');
+  const btn = $('toggleKeyBtn');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    btn.textContent = _('modal.hide');
+  } else {
+    inp.type = 'password';
+    btn.textContent = _('modal.show');
+  }
+}
+
+async function saveKey() {
+  const kid = $('editKeyId').value;
+  const data = {
+    name: $('keyName').value.trim(),
+    api_key: $('keyApiKey').value.trim(),
+  };
+  if (!data.name || !data.api_key) { alert('Name and API Key are required'); return; }
+  if (kid) {
+    await api('/api/vendors/' + selectedVendorId + '/keys/' + kid, { method: 'PUT', body: JSON.stringify(data) });
+  } else {
+    await api('/api/vendors/' + selectedVendorId + '/keys', { method: 'POST', body: JSON.stringify(data) });
+  }
+  closeKeyModal();
+  loadVendors();
+}
+
+async function editKey(vendorId, keyId) {
+  const data = await api('/api/vendors');
+  const v = data.vendors.find(function(x) { return x.id === vendorId; });
+  if (!v) return;
+  const k = v.keys.find(function(x) { return x.id === keyId; });
+  if (!k) return;
+  $('keyModalTitle').textContent = _('keyModal.editTitle');
+  $('editKeyId').value = keyId;
+  $('keyName').value = k.name;
+  $('keyApiKey').value = k.api_key;
+  $('keyModal').classList.add('open');
+}
+
+async function deleteKey(vendorId, keyId) {
+  if (!confirm(_('confirm.delete'))) return;
+  await api('/api/vendors/' + vendorId + '/keys/' + keyId, { method: 'DELETE' });
+  loadVendors();
+}
+
+async function enableKey(vendorId, keyId) {
+  await api('/api/vendors/' + vendorId + '/keys/' + keyId + '/enable', { method: 'POST' });
+  loadVendors();
+}
+
+async function disableKey(vendorId, keyId) {
+  await api('/api/vendors/' + vendorId + '/keys/' + keyId + '/disable', { method: 'POST' });
+  loadVendors();
+}
+
+async function checkKeyHealth(vendorId, keyId) {
+  const btn = event && event.target;
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = _('action.checking'); }
+    const res = await api('/api/vendors/' + vendorId + '/keys/' + keyId + '/health');
+    if (res.healthy) {
+      showToast(_('toast.checkOk'), 'success');
+    } else {
+      showToast(_('toast.checkFail') + ': ' + (res.error || ''), 'error');
+    }
+  } catch (e) {
+    showToast(_('toast.checkFail') + ': ' + e, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = _('action.check'); }
+    loadVendors();
+  }
+}
+
+function showToast(message, type) {
+  type = type || 'info';
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + type;
+  el.textContent = message;
+  $('toastContainer').appendChild(el);
+  setTimeout(function() {
+    el.classList.add('toast-leave');
+    setTimeout(function() { el.remove(); }, 250);
+  }, 3000);
+}
+
+// ── Actions ─────────────────────────────────────────────
+
+async function syncFromOpenclaw() {
+  const res = await api('/api/sync', { method: 'POST' });
+  alert('Synced ' + res.synced + ' keys (total: ' + res.total + ')');
+  loadVendors();
+}
+
+async function checkAllHealth() {
+  const btn = event && event.target;
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = _('action.checking'); }
+    const res = await api('/api/health/check-all', { method: 'POST' });
+    const arr = res.results || [];
+    const ok = arr.filter(function(r) { return r.healthy; }).length;
+    const fail = arr.filter(function(r) { return !r.healthy; }).length;
+    showToast(_('toast.checkAllDone').replace('{ok}', ok).replace('{fail}', fail), fail > 0 ? 'error' : 'success');
+  } catch (e) {
+    showToast(_('toast.checkFail') + ': ' + e, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = _('toolbar.checkAllHealth'); }
+    loadVendors();
+  }
+}
+
+// ── Batch Import ────────────────────────────────────────
+
+let _batchEntries = [];
+
+function showBatchImportModal() {
+  _batchEntries = [];
+  $('batchImportText').value = '';
+  $('batchImportPreview').style.display = 'none';
+  $('batchImportError').style.display = 'none';
+  $('batchParseBtn').style.display = 'inline-block';
+  $('batchApplyBtn').style.display = 'none';
+  $('batchImportModal').classList.add('open');
+}
+
+function closeBatchImportModal() {
+  $('batchImportModal').classList.remove('open');
+}
+
+async function parseBatchImport() {
+  const text = $('batchImportText').value.trim();
+  if (!text) { alert('Paste some provider info first'); return; }
+  const res = await api('/api/batch-import/parse', {
+    method: 'POST',
+    body: JSON.stringify({text: text}),
+  });
+  if (res.error) { $('batchImportError').textContent = res.error; $('batchImportError').style.display = 'block'; return; }
+  _batchEntries = res.entries;
+  if (_batchEntries.length === 0) {
+    $('batchImportError').textContent = 'No API keys or URLs found';
+    $('batchImportError').style.display = 'block';
+    return;
+  }
+  $('batchImportError').style.display = 'none';
+  let html = '<table><thead><tr><th style="width:36px"><input type="checkbox" id="batchSelectAll" checked onchange="batchToggleAll()"></th><th>' + _('table.keyName') + '</th><th>Provider</th><th>URL</th><th>API Key</th></tr></thead><tbody>';
+  for (let i = 0; i < _batchEntries.length; i++) {
+    const e = _batchEntries[i];
+    html += '<tr><td><input type="checkbox" class="batch-check" data-idx="' + i + '" checked></td><td>' + esc(e.name) + '</td><td>' + esc(e.provider) + '</td><td><code>' + esc(e.api_url) + '</code></td><td><code>' + esc(e.api_key.slice(0, 16)) + '...</code></td></tr>';
+  }
+  html += '</tbody></table>';
+  $('batchImportTableWrap').innerHTML = html;
+  $('batchImportPreview').style.display = 'block';
+  $('batchParseBtn').style.display = 'none';
+  $('batchApplyBtn').style.display = 'inline-block';
+}
+
+function batchToggleAll() {
+  const checked = $('batchSelectAll').checked;
+  document.querySelectorAll('.batch-check').forEach(function(el) { el.checked = checked; });
+}
+
+function _getSelectedBatchEntries() {
+  const checks = document.querySelectorAll('.batch-check:checked');
+  return Array.from(checks).map(function(el) { return _batchEntries[parseInt(el.dataset.idx)]; });
+}
+
+async function applyBatchImport() {
+  const selected = _getSelectedBatchEntries();
+  if (selected.length === 0) { alert('Select at least one entry'); return; }
+  $('batchApplyBtn').disabled = true;
+  $('batchApplyBtn').textContent = 'Importing...';
+  const res = await api('/api/batch-import/apply', {
+    method: 'POST',
+    body: JSON.stringify({entries: selected}),
+  });
+  closeBatchImportModal();
+  loadVendors();
+  const imported = (res.created || []).filter(function(c) { return !c.skipped; }).length;
+  const skipped = (res.created || []).filter(function(c) { return c.skipped; }).length;
+  let msg = 'Imported ' + imported + ' key(s)';
+  if (skipped > 0) msg += ', ' + skipped + ' skipped (already exists)';
+  showToast(msg, imported > 0 ? 'success' : 'error');
+}
+
+async function refreshGatewayStatus() {
+  const data = await api('/api/gateway/status');
+  $('gRunning').textContent = data.running ? _('gateway.yes') : _('gateway.no');
+  if (data.port) $('gPort').textContent = data.port;
+  $('gMessage').textContent = data.message || '-';
+  updateGatewayMiniStatus(data);
+}
+
+function updateGatewayMiniStatus(data) {
+  const dot = document.querySelector('#gatewayMiniStatus .status-dot');
+  const text = $('gatewayMiniText');
+  if (data.running) {
+    dot.className = 'status-dot healthy';
+    text.textContent = _('gateway.running') + (data.port ? ' (port ' + data.port + ')' : '');
+  } else {
+    dot.className = 'status-dot unhealthy';
+    text.textContent = _('gateway.stopped');
+  }
+}
+
+async function restartGateway() {
+  if (!confirm(_('confirm.restart'))) return;
+  const res = await api('/api/gateway/restart', { method: 'POST' });
+  alert(res.message || (res.success ? _('alert.restartSuccess') : _('alert.restartFailed')));
+  refreshGatewayStatus();
+}
+
+// ── Language ────────────────────────────────────────────
+
+var ALL_LOCALES = {{ all_locales | tojson }};
+LOCALE_STRINGS = ALL_LOCALES[currentLang] || ALL_LOCALES['en'];
+
+// ── Gateway Config ──────────────────────────────────────
+
+function onGatewayModeChange() {
+  const mode = $('gatewayMode').value;
+  $('gatewayLocal').style.display = mode === 'local' ? 'block' : 'none';
+  $('gatewayRemote').style.display = mode === 'remote' ? 'block' : 'none';
+  if (mode === 'local') refreshGatewayStatus();
+}
+
+function onRemoteTypeChange() {
+  const t = $('remoteType').value;
+  $('remoteSshFields').style.display = t === 'ssh' ? 'block' : 'none';
+  $('remoteGatewayFields').style.display = t === 'gateway' ? 'block' : 'none';
+}
+
+async function testRemoteGateway() {
+  const type = $('remoteType').value;
+  let data = { type: type };
+  if (type === 'ssh') {
+    data.host = $('remoteHost').value.trim();
+    data.port = parseInt($('remotePort').value) || 22;
+    data.user = $('remoteUser').value.trim();
+    data.key_file = $('remoteKeyFile').value.trim();
+    data.config_path = $('remoteConfigPath').value.trim();
+  } else {
+    data.url = $('remoteUrl').value.trim();
+    data.token = $('remoteToken').value;
+  }
+  const res = await api('/api/gateway/remote/test', { method: 'POST', body: JSON.stringify(data) });
+  $('remoteResult').style.display = 'block';
+  $('remoteResult').className = 'conn-result ' + (res.success ? 'healthy' : 'unhealthy');
+  $('remoteResult').textContent = res.message || (res.success ? 'OK' : 'Failed');
+}
+
+async function saveRemoteGateway() {
+  const data = {
+    mode: 'remote',
+    type: $('remoteType').value,
+  };
+  if (data.type === 'ssh') {
+    data.host = $('remoteHost').value.trim();
+    data.port = parseInt($('remotePort').value) || 22;
+    data.user = $('remoteUser').value.trim();
+    data.key_file = $('remoteKeyFile').value.trim();
+    data.config_path = $('remoteConfigPath').value.trim();
+  } else {
+    data.url = $('remoteUrl').value.trim();
+    data.token = $('remoteToken').value;
+  }
+  await api('/api/gateway/config', { method: 'POST', body: JSON.stringify(data) });
+  showToast(_('toast.saved'));
+}
+
+async function loadGatewayConfig() {
+  const res = await api('/api/gateway/config');
+  if (res.mode === 'remote') {
+    $('gatewayMode').value = 'remote';
+    onGatewayModeChange();
+    if (res.type) $('remoteType').value = res.type;
+    onRemoteTypeChange();
+    if (res.type === 'ssh') {
+      $('remoteHost').value = res.host || '';
+      $('remotePort').value = res.port || 22;
+      $('remoteUser').value = res.user || '';
+      $('remoteKeyFile').value = res.key_file || '';
+      $('remoteConfigPath').value = res.config_path || '~/.openclaw';
+    } else {
+      $('remoteUrl').value = res.url || '';
+      $('remoteToken').value = res.token || '';
+    }
+  }
+}
+
+function switchLang(code) {
+  currentLang = code;
+  LOCALE_STRINGS = ALL_LOCALES[code] || ALL_LOCALES['en'];
+  localStorage.setItem('opencaw_lang', code);
+  fetch('/api/lang', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({lang: code}) }).catch(function(){});
+  $('langSelect').value = code;
+  updateI18n();
+  document.documentElement.lang = code;
+  loadVendors();
+  if (document.querySelector('#view-gateway.active')) refreshGatewayStatus();
+}
+
+(function() {
+  var saved = localStorage.getItem('opencaw_lang');
+  if (saved && ALL_LOCALES[saved] && saved !== currentLang) switchLang(saved);
+})();
+
+// ── Theme ────────────────────────────────────────────────
+
+function toggleTheme() {
+  var current = document.documentElement.getAttribute('data-theme') || 'dark';
+  var next = current === 'light' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('opencaw_theme', next);
+  updateThemeBtn(next);
+}
+
+function updateThemeBtn(theme) {
+  $('themeToggle').textContent = theme === 'dark' ? _('theme.dark') : _('theme.light');
+}
+
+(function() {
+  var saved = localStorage.getItem('opencaw_theme');
+  if (saved === 'light' || saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', saved);
+    updateThemeBtn(saved);
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    updateThemeBtn('dark');
+  }
+})();
+
+// ── Navigation ──────────────────────────────────────────
+
+document.querySelectorAll('nav a').forEach(function(a) {
+  a.addEventListener('click', function(e) {
+    e.preventDefault();
+    document.querySelectorAll('nav a').forEach(function(x) { x.classList.remove('active'); });
+    a.classList.add('active');
+    const view = a.dataset.view;
+    document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
+    document.getElementById('view-' + view).classList.add('active');
+    $('viewTitle').textContent = _('nav.' + view);
+    if (view === 'gateway') { refreshGatewayStatus(); loadGatewayConfig(); }
+  });
+});
+
+loadVendors();
+refreshGatewayStatus();
+</script>
+</body>
+</html>

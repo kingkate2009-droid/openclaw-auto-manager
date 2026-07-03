@@ -1,0 +1,10 @@
+services:
+  manager:
+    build: .
+    container_name: openclaw-manager
+    ports:
+      - "8787:8787"
+    volumes:
+      - ~/.openclaw:/root/.openclaw:ro
+      - ~/.openclaw-auto-manager:/root/.openclaw-auto-manager
+    restart: unless-stopped
