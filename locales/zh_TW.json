@@ -73,6 +73,8 @@
   "gatewayPanel.message": "訊息：",
   "gatewayPanel.refresh": "重新整理",
   "gatewayPanel.restart": "重新啟動閘道",
+  "gatewayPanel.openclawVersion": "OpenClaw 版本：",
+  "gatewayPanel.managerVersion": "管理器版本：",
   "settings.title": "健康檢測設定",
   "settings.interval": "檢測間隔",
   "settings.seconds": "秒",

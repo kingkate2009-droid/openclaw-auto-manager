@@ -516,7 +516,7 @@ code {
 .status-line .label {
   color: var(--text2);
   display: inline-block;
-  width: 120px;
+  width: 140px;
 }
 
 .hint {
