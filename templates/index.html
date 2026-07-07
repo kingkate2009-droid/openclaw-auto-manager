@@ -114,6 +114,9 @@
               <div class="status-line"><span class="label" data-i18n="gatewayPanel.running">{{ t('gatewayPanel.running') }}</span> <span id="gRunning">-</span></div>
               <div class="status-line"><span class="label" data-i18n="gatewayPanel.port">{{ t('gatewayPanel.port') }}</span> <span id="gPort">-</span></div>
               <div class="status-line"><span class="label" data-i18n="gatewayPanel.message">{{ t('gatewayPanel.message') }}</span> <span id="gMessage">-</span></div>
+              <div class="status-line"><span class="label" data-i18n="gatewayPanel.openclawVersion">{{ t('gatewayPanel.openclawVersion') }}</span> <span id="gOpenclawVersion">-</span></div>
+              <div class="status-line"><span class="label" data-i18n="gatewayPanel.managerVersion">{{ t('gatewayPanel.managerVersion') }}</span> <span id="gManagerVersion">-</span></div>
+              <div id="versionWarning" style="display:none" class="status-line">⚠️ <span id="versionWarningText"></span></div>
             </div>
             <div class="card-actions">
               <button class="btn btn-secondary" onclick="refreshGatewayStatus()" data-i18n="gatewayPanel.refresh">{{ t('gatewayPanel.refresh') }}</button>
@@ -167,24 +170,6 @@
               <button class="btn btn-primary" onclick="saveRemoteGateway()" data-i18n="modal.save">{{ t('modal.save') }}</button>
             </div>
             <div id="remoteResult" style="display:none" class="conn-result"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-      <div class="gateway-panel">
-        <div class="card">
-          <h3 data-i18n="gatewayPanel.title">{{ t('gatewayPanel.title') }}</h3>
-          <div id="gatewayStatusContent">
-            <div class="status-line"><span class="label" data-i18n="gatewayPanel.running">{{ t('gatewayPanel.running') }}</span> <span id="gRunning">-</span></div>
-            <div class="status-line"><span class="label" data-i18n="gatewayPanel.port">{{ t('gatewayPanel.port') }}</span> <span id="gPort">-</span></div>
-            <div class="status-line"><span class="label" data-i18n="gatewayPanel.message">{{ t('gatewayPanel.message') }}</span> <span id="gMessage">-</span></div>
-            <div class="status-line"><span class="label" data-i18n="gatewayPanel.openclawVersion">{{ t('gatewayPanel.openclawVersion') }}</span> <span id="gOpenclawVersion">-</span></div>
-            <div class="status-line"><span class="label" data-i18n="gatewayPanel.managerVersion">{{ t('gatewayPanel.managerVersion') }}</span> <span id="gManagerVersion">-</span></div>
-            <div id="versionWarning" style="display:none" class="status-line" style="color: var(--warning);">⚠️ <span id="versionWarningText"></span></div>
-          </div>
-          <div class="card-actions">
-            <button class="btn btn-secondary" onclick="refreshGatewayStatus()" data-i18n="gatewayPanel.refresh">{{ t('gatewayPanel.refresh') }}</button>
-            <button class="btn btn-warning" onclick="restartGateway()" data-i18n="gatewayPanel.restart">{{ t('gatewayPanel.restart') }}</button>
           </div>
         </div>
       </div>
