@@ -71,6 +71,8 @@
   "gatewayPanel.running": "Running:",
   "gatewayPanel.port": "Port:",
   "gatewayPanel.message": "Message:",
+  "gatewayPanel.openclawVersion": "OpenClaw:",
+  "gatewayPanel.managerVersion": "Manager:",
   "gatewayPanel.refresh": "Refresh",
   "gatewayPanel.restart": "Restart Gateway",
   "settings.title": "Health Check Settings",

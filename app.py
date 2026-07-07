@@ -349,9 +349,14 @@ def api_sync():
 
 @app.route("/api/gateway/status", methods=["GET"])
 def api_gateway_status():
+    from config_manager import get_openclaw_version, MANAGER_VERSION, MIN_OPENCLAW_VERSION, RECOMMENDED_OPENCLAW_VERSION
     status = get_gateway_status()
     health = get_all_health_status()
     status["health"] = health
+    status["openclaw_version"] = get_openclaw_version()
+    status["manager_version"] = MANAGER_VERSION
+    status["min_openclaw_version"] = MIN_OPENCLAW_VERSION
+    status["recommended_openclaw_version"] = RECOMMENDED_OPENCLAW_VERSION
     return jsonify(status)
 
 

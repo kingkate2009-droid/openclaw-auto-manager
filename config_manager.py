@@ -690,6 +690,24 @@ def update_settings(**kwargs) -> dict:
 
 # ── Gateway ──────────────────────────────────────────────
 
+MANAGER_VERSION = "1.0.0"
+MIN_OPENCLAW_VERSION = "2026.3.0"
+RECOMMENDED_OPENCLAW_VERSION = "2026.6.11"
+
+
+def get_openclaw_version() -> str:
+    try:
+        r = subprocess.run(
+            ["openclaw", "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
 def restart_gateway() -> dict:
     result = {"success": False, "message": ""}
     try:

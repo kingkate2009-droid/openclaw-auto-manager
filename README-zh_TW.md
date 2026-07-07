@@ -52,6 +52,8 @@ python3 app.py
 
 **要求**: Python 3.9+，OpenClaw CLI 已安裝並設定
 
+**相容版本**: OpenClaw 2026.3.0+（建議：2026.6.11+）
+
 ### Docker
 
 ```bash

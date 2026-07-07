@@ -178,6 +178,9 @@
             <div class="status-line"><span class="label" data-i18n="gatewayPanel.running">{{ t('gatewayPanel.running') }}</span> <span id="gRunning">-</span></div>
             <div class="status-line"><span class="label" data-i18n="gatewayPanel.port">{{ t('gatewayPanel.port') }}</span> <span id="gPort">-</span></div>
             <div class="status-line"><span class="label" data-i18n="gatewayPanel.message">{{ t('gatewayPanel.message') }}</span> <span id="gMessage">-</span></div>
+            <div class="status-line"><span class="label" data-i18n="gatewayPanel.openclawVersion">{{ t('gatewayPanel.openclawVersion') }}</span> <span id="gOpenclawVersion">-</span></div>
+            <div class="status-line"><span class="label" data-i18n="gatewayPanel.managerVersion">{{ t('gatewayPanel.managerVersion') }}</span> <span id="gManagerVersion">-</span></div>
+            <div id="versionWarning" style="display:none" class="status-line" style="color: var(--warning);">⚠️ <span id="versionWarningText"></span></div>
           </div>
           <div class="card-actions">
             <button class="btn btn-secondary" onclick="refreshGatewayStatus()" data-i18n="gatewayPanel.refresh">{{ t('gatewayPanel.refresh') }}</button>
@@ -743,6 +746,24 @@ async function refreshGatewayStatus() {
   $('gRunning').textContent = data.running ? _('gateway.yes') : _('gateway.no');
   if (data.port) $('gPort').textContent = data.port;
   $('gMessage').textContent = data.message || '-';
+  $('gOpenclawVersion').textContent = data.openclaw_version || '-';
+  $('gManagerVersion').textContent = data.manager_version || '-';
+  
+  // Version compatibility check
+  const warning = $('versionWarning');
+  if (data.openclaw_version && data.min_openclaw_version) {
+    const current = data.openclaw_version.replace(/^OpenClaw\s+/, '').split('-')[0];
+    const min = data.min_openclaw_version;
+    if (current < min) {
+      warning.style.display = 'block';
+      $('versionWarningText').textContent = `OpenClaw ${current} is outdated. Recommended: ${data.recommended_openclaw_version || min}+`;
+    } else {
+      warning.style.display = 'none';
+    }
+  } else {
+    warning.style.display = 'none';
+  }
+  
   updateGatewayMiniStatus(data);
 }
 
