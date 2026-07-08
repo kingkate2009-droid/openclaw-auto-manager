@@ -1,4 +1,5 @@
 import re
+import base64
 from typing import Optional
 
 from providers import get_provider, recognize_provider
@@ -14,12 +15,59 @@ def _normalize_text(text: str) -> str:
     return text.replace("：", ":").replace("，", ",").replace("（", "(").replace("）", ")")
 
 
+def _try_base64_decode(text: str) -> str:
+    """Try to decode Base64 encoded string. Returns decoded string or original if not valid Base64."""
+    text = text.strip()
+    if not text or len(text) < 10:
+        return text
+    
+    # Check if it looks like Base64 (only alphanumeric + / + = padding)
+    if not re.match(r'^[A-Za-z0-9+/]+={0,2}$', text):
+        return text
+    
+    try:
+        # Add padding if needed
+        padding = 4 - len(text) % 4
+        if padding != 4:
+            text += '=' * padding
+        
+        decoded = base64.b64decode(text).decode('utf-8', errors='ignore')
+        
+        # Check if decoded result looks useful (contains URL or key pattern)
+        if URL_RE.search(decoded) or KEY_RE.search(decoded):
+            return decoded
+        
+        # Check if decoded result is printable and reasonable length
+        if decoded.isprintable() and 5 < len(decoded) < 500:
+            return decoded
+        
+        return text
+    except Exception:
+        return text
+
+
 def _find_api_keys(text: str) -> list[str]:
-    return KEY_RE.findall(text)
+    """Find API keys in text, with Base64 auto-decode."""
+    # First try to decode any Base64 segments
+    words = text.split()
+    decoded_parts = []
+    for word in words:
+        decoded_parts.append(_try_base64_decode(word))
+    decoded_text = ' '.join(decoded_parts)
+    
+    return KEY_RE.findall(decoded_text)
 
 
 def _find_urls(text: str) -> list[str]:
-    return [u.rstrip("/") for u in URL_RE.findall(text)]
+    """Find URLs in text, with Base64 auto-decode."""
+    # First try to decode any Base64 segments
+    words = text.split()
+    decoded_parts = []
+    for word in words:
+        decoded_parts.append(_try_base64_decode(word))
+    decoded_text = ' '.join(decoded_parts)
+    
+    return [u.rstrip("/") for u in URL_RE.findall(decoded_text)]
 
 
 def _make_key_name(key: str) -> str:
