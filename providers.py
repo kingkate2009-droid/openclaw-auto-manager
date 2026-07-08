@@ -227,6 +227,9 @@ PROBE_TIMEOUT = 15
 
 _MODEL_CANDIDATES = ["gpt-3.5-turbo", "gpt-4o-mini", "deepseek-chat", "glm-4", "qwen-turbo", "mimo-v2.5-pro", ""]
 
+# Volcengine Coding Plan requires specific models
+_VOLCENGINE_MODELS = ["ark-code-latest", "Doubao-Seed-2.0-pro", "Doubao-Seed-2.0-Code", "GLM-4.7", "Kimi-K2.5"]
+
 
 def _is_model_error(body: str) -> bool:
     lower = body.lower()
@@ -234,18 +237,20 @@ def _is_model_error(body: str) -> bool:
         "model not found", "model not specified", "model name", "model does not exist",
         "not a supported model", "not supported model", "invalid model", "model cannot be empty",
         "no available channel for model", "model not available", "model access denied",
-        "model not supported", "unknown model", "unrecognized model",
+        "model not supported", "unknown model", "unrecognized model", "unsupportedmodel",
+        "unsupported model", "does not support the coding plan",
     ]):
         return True
     return False
 
 
 def _probe_chat_completions(url: str, headers: dict, models_to_try: Optional[list[str]] = None) -> tuple:
-    # Always ensure /v1 prefix for OpenAI-compatible endpoints
+    # Use the URL as-is if it already contains a version path
     base = url.rstrip("/")
-    if not base.endswith("/v1") and not base.endswith("/v1/"):
-        base = base + "/v1"
-    chat_url = base + "/chat/completions"
+    if base.endswith(("/v1", "/v2", "/v3", "/v4")):
+        chat_url = base + "/chat/completions"
+    else:
+        chat_url = base + "/v1/chat/completions"
 
     base_payload = {
         "messages": [{"role": "user", "content": "hi"}],
@@ -307,7 +312,13 @@ def probe_openai_chat(url: str, api_key: str) -> tuple:
         "Content-Type": "application/json",
     }
     discovered = _scan_models_openai(url, headers)
-    models_to_try = discovered + [""]
+    
+    # Use Volcengine-specific models if URL contains volcengine
+    if "volces.com" in url or "volcengine" in url.lower():
+        models_to_try = discovered + _VOLCENGINE_MODELS
+    else:
+        models_to_try = discovered + [""] + _MODEL_CANDIDATES
+    
     return _probe_chat_completions(url, headers, models_to_try)
 
 
@@ -426,9 +437,11 @@ def _is_chat_model(model_id: str) -> bool:
 
 def _scan_models_openai(url: str, headers: dict) -> list[str]:
     root = url.rstrip("/")
-    if not root.endswith("/v1") and not root.endswith("/v1/"):
-        root = root + "/v1"
-    models_url = root + "/models"
+    # If URL already ends with a version path (e.g., /v3), use it directly
+    if root.endswith(("/v1", "/v2", "/v3", "/v4")):
+        models_url = root + "/models"
+    else:
+        models_url = root + "/v1/models"
     try:
         r = _new_session().get(models_url, headers=headers, timeout=PROBE_TIMEOUT)
         if r.status_code == 200:
