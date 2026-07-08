@@ -6,7 +6,9 @@ from providers import get_provider, recognize_provider
 
 URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
 KEY_RE = re.compile(
-    r"(?:sk-[a-zA-Z0-9_-]{20,}|tp-[a-zA-Z0-9]{20,}|[a-zA-Z0-9]{30,})"
+    r"(?:sk-[a-zA-Z0-9_-]{20,}|tp-[a-zA-Z0-9]{20,}|"
+    r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|"
+    r"[a-zA-Z0-9]{30,})"
 )
 _NAME_ONLY_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_ .-]{1,30}$")
 

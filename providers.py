@@ -113,7 +113,7 @@ PROVIDERS = [
     {
         "id": "volcengine",
         "name": "Volcengine (Doubao)",
-        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
         "check_type": "openai_chat",
     },
     {
