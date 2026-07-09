@@ -1,3 +1,4 @@
+import json
 import re
 import base64
 from typing import Optional
@@ -98,8 +99,58 @@ def _is_provider_name(line: str) -> bool:
     return bool(_NAME_ONLY_RE.match(stripped))
 
 
+def _try_parse_json(text: str) -> Optional[list[dict]]:
+    """Try to parse input as JSON. Returns list of entry dicts or None."""
+    text = text.strip()
+    if not (text.startswith("{") or text.startswith("[")):
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    
+    items = data if isinstance(data, list) else [data]
+    
+    # Try to derive provider from a common prefix across items
+    common_type = None
+    for item in items:
+        if isinstance(item, dict) and item.get("_type"):
+            t = str(item["_type"])
+            if "_channel_conn" in t:
+                common_type = t.split("_channel_conn")[0]
+    
+    entries = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url") or item.get("api_url") or item.get("base_url") or ""
+        key = item.get("key") or item.get("api_key") or item.get("apikey") or item.get("token") or ""
+        if not url and not key:
+            # Try nested objects
+            for v in item.values():
+                if isinstance(v, dict):
+                    url = url or v.get("url") or v.get("api_url") or ""
+                    key = key or v.get("key") or v.get("api_key") or ""
+        if url or key:
+            provider = item.get("provider") or item.get("model") or common_type or (_guess_provider_from_url(url) if url else "unknown")
+            entries.append({
+                "provider": provider,
+                "name": _make_key_name(key) if key else "(need key)",
+                "api_url": url.rstrip("/"),
+                "api_key": key,
+                "endpoint_type": "openai",
+            })
+    return entries if entries else None
+
+
 def parse_batch_text(text: str) -> list[dict]:
     text = _normalize_text(text)
+    
+    # Try JSON parsing first
+    json_entries = _try_parse_json(text)
+    if json_entries is not None:
+        return _dedupe_entries(json_entries)
+    
     lines = text.strip().split("\n")
     urls_with_names: list[tuple[str, str, str]] = []  # (url, provider, endpoint_type)
     keys: list[str] = []
@@ -169,8 +220,12 @@ def parse_batch_text(text: str) -> list[dict]:
                 "endpoint_type": "openai",
             })
 
-    deduped = []
+    return _dedupe_entries(entries)
+
+
+def _dedupe_entries(entries: list[dict]) -> list[dict]:
     seen = set()
+    deduped = []
     for e in entries:
         dedup_key = (e["api_url"], e["api_key"])
         if dedup_key not in seen:
