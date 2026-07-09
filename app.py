@@ -116,6 +116,7 @@ def api_create_vendor():
         name=data["name"],
         provider=data.get("provider", "custom"),
         api_url=data.get("api_url", "https://api.openai.com/v1"),
+        endpoint_type=data.get("endpoint_type", "openai"),
     )
     return jsonify(v), 201
 
@@ -168,9 +169,9 @@ def api_create_key(vendor_id):
         update_key_data(vendor_id, k["id"], **updates)
         _sync_key_to_openclaw(v, k, models_override=models)
     else:
-        _remove_from_openclaw(f"{v['provider']}:{k['name']}")
+        _remove_from_openclaw(f"{v['provider']}@{k['name']}")
         old = f"{v['provider']}-{k['id']}"
-        if old != f"{v['provider']}:{k['name']}":
+        if old != f"{v['provider']}@{k['name']}":
             _remove_from_openclaw(old)
         update_key_data(vendor_id, k["id"], enabled=False)
         k["enabled"] = False
@@ -210,11 +211,12 @@ def api_check_key_health(vendor_id, key_id):
         update_key_data(vendor_id, key_id, **updates)
         _sync_key_to_openclaw(v, k, models_override=models)
     elif v and k and not health.get("healthy"):
-        _remove_from_openclaw(f"{v['provider']}:{k['name']}")
+        _remove_from_openclaw(f"{v['provider']}@{k['name']}")
         old = f"{v['provider']}-{k['id']}"
-        if old != f"{v['provider']}:{k['name']}":
+        if old != f"{v['provider']}@{k['name']}":
             _remove_from_openclaw(old)
         update_key_data(vendor_id, key_id, enabled=False)
+    reconcile_openclaw()
     return jsonify(health)
 
 
@@ -226,6 +228,7 @@ def api_enable_key(vendor_id, key_id):
         return jsonify({"error": "not found"}), 404
     k = update_key(vendor_id, key_id, enabled=True)
     _sync_key_to_openclaw(v, k)
+    reconcile_openclaw()
     return jsonify(k)
 
 
@@ -235,11 +238,12 @@ def api_disable_key(vendor_id, key_id):
     k = get_key(vendor_id, key_id)
     if not v or not k:
         return jsonify({"error": "not found"}), 404
-    _remove_from_openclaw(f"{v['provider']}:{k['name']}")
+    _remove_from_openclaw(f"{v['provider']}@{k['name']}")
     old = f"{v['provider']}-{k['id']}"
-    if old != f"{v['provider']}:{k['name']}":
+    if old != f"{v['provider']}@{k['name']}":
         _remove_from_openclaw(old)
     k = update_key(vendor_id, key_id, enabled=False)
+    reconcile_openclaw()
     return jsonify(k)
 
 
@@ -264,9 +268,9 @@ def api_batch_keys(vendor_id):
             update_key(vendor_id, kid, enabled=True)
             results.append({"key_id": kid, "success": True, "action": "enabled"})
         elif action == "disable":
-            _remove_from_openclaw(f"{v['provider']}:{k['name']}")
+            _remove_from_openclaw(f"{v['provider']}@{k['name']}")
             old = f"{v['provider']}-{k['id']}"
-            if old != f"{v['provider']}:{k['name']}":
+            if old != f"{v['provider']}@{k['name']}":
                 _remove_from_openclaw(old)
             update_key(vendor_id, kid, enabled=False)
             results.append({"key_id": kid, "success": True, "action": "disabled"})
@@ -305,16 +309,18 @@ def api_batch_apply():
     created = []
     for entry in entries:
         provider = entry.get("provider", "unknown")
-        api_url = entry.get("api_url", "")
+        api_url = entry.get("api_url", "").rstrip("/")
         api_key = entry.get("api_key", "")
         name = entry.get("name", api_key[:12])
+        endpoint_type = entry.get("endpoint_type", "openai")
 
         if not api_key or not api_url:
             continue
 
         vendor = None
         for v in get_vendors():
-            if v["provider"] == provider:
+            existing_url = v.get("api_url", "").rstrip("/")
+            if existing_url == api_url or v["provider"] == provider:
                 vendor = v
                 break
 
@@ -323,6 +329,7 @@ def api_batch_apply():
                 name=provider.replace("-", " ").title(),
                 provider=provider,
                 api_url=api_url,
+                endpoint_type=endpoint_type,
             )
 
         key_exists = any(k["name"] == name or k["api_key"] == api_key for k in vendor.get("keys", []))

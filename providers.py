@@ -12,9 +12,6 @@ warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 def _new_session() -> requests.Session:
     s = requests.Session()
     s.verify = False
-    s.headers.update({
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    })
     return s
 
 # ── Provider Registry ─────────────────────────────────────
@@ -256,6 +253,9 @@ def _probe_chat_completions(url: str, headers: dict, models_to_try: Optional[lis
         "messages": [{"role": "user", "content": "hi"}],
     }
     candidates = models_to_try if models_to_try is not None else _MODEL_CANDIDATES
+    # Filter out empty strings if we have other candidates
+    if len(candidates) > 1:
+        candidates = [m for m in candidates if m]
     try:
         all_model_errors = True
         any_403 = False
@@ -269,10 +269,13 @@ def _probe_chat_completions(url: str, headers: dict, models_to_try: Optional[lis
             last_model_name = model or "(none)"
             if r.status_code == 200:
                 try:
-                    msg = r.json().get("choices", [{}])[0].get("message", {}).get("content", "OK")[:100]
+                    data = r.json()
+                    msg = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if not msg:
+                        msg = json.dumps(data)[:200]
                 except Exception:
-                    msg = "OK"
-                return True, msg
+                    msg = r.text[:200]
+                return True, f"[{model}] {msg[:200]}"
             if r.status_code == 429:
                 body = r.text[:300]
                 body_lower = body.lower()
@@ -287,6 +290,9 @@ def _probe_chat_completions(url: str, headers: dict, models_to_try: Optional[lis
             if r.status_code == 401:
                 return False, f"Auth failed (HTTP 401)"
             if r.status_code == 403:
+                body_lower = body.lower()
+                if "blocked" in body_lower:
+                    return False, f"Access blocked: {body}"
                 any_403 = True
                 last_403_body = body
                 all_model_errors = False
@@ -306,29 +312,31 @@ def _probe_chat_completions(url: str, headers: dict, models_to_try: Optional[lis
         return False, str(e)[:200]
 
 
-def probe_openai_chat(url: str, api_key: str) -> tuple:
+def probe_openai_chat(url: str, api_key: str, models_to_try: Optional[list[str]] = None) -> tuple:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    discovered = _scan_models_openai(url, headers)
-    
-    # Use Volcengine-specific models if URL contains volcengine
-    if "volces.com" in url or "volcengine" in url.lower():
-        models_to_try = discovered + _VOLCENGINE_MODELS
-    else:
-        models_to_try = discovered + [""] + _MODEL_CANDIDATES
+    if models_to_try is None:
+        discovered = _scan_models_openai(url, headers)
+        if "volces.com" in url or "volcengine" in url.lower():
+            models_to_try = discovered + _VOLCENGINE_MODELS + [""]
+        elif discovered:
+            models_to_try = discovered + [""]
+        else:
+            models_to_try = _MODEL_CANDIDATES
     
     return _probe_chat_completions(url, headers, models_to_try)
 
 
-def probe_openai_chat_apikey(url: str, api_key: str) -> tuple:
+def probe_openai_chat_apikey(url: str, api_key: str, models_to_try: Optional[list[str]] = None) -> tuple:
     headers = {
         "api-key": api_key,
         "Content-Type": "application/json",
     }
-    discovered = _scan_models_openai(url, headers)
-    models_to_try = discovered + [""]
+    if models_to_try is None:
+        discovered = _scan_models_openai(url, headers)
+        models_to_try = discovered + [""]
     return _probe_chat_completions(url, headers, models_to_try)
 
 
@@ -347,10 +355,12 @@ def probe_anthropic(url: str, api_key: str) -> tuple:
         }, headers=headers, timeout=PROBE_TIMEOUT)
         if r.status_code == 200:
             try:
-                msg = r.json().get("content", [{}])[0].get("text", "OK")[:100]
+                msg = r.json().get("content", [{}])[0].get("text", "")
+                if not msg:
+                    msg = r.text[:200]
             except Exception:
-                msg = "OK"
-            return True, msg
+                msg = r.text[:200]
+            return True, f"[claude-3-5-sonnet-20241022] {msg[:200]}"
         if r.status_code in (401, 403):
             return False, f"Auth failed (HTTP {r.status_code})"
         if r.status_code == 429:
@@ -379,10 +389,12 @@ def probe_gemini(url: str, api_key: str) -> tuple:
         }, timeout=PROBE_TIMEOUT)
         if r.status_code == 200:
             try:
-                msg = r.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "OK")[:100]
+                msg = r.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if not msg:
+                    msg = r.text[:200]
             except Exception:
-                msg = "OK"
-            return True, msg
+                msg = r.text[:200]
+            return True, f"[gemini-2.0-flash] {msg[:200]}"
         if r.status_code in (401, 403):
             return False, f"Auth failed (HTTP {r.status_code})"
         if r.status_code == 429:
@@ -411,9 +423,9 @@ _PROBE_FUNCS = {
 }
 
 
-def probe_provider(check_type: str, url: str, api_key: str) -> tuple:
+def probe_provider(check_type: str, url: str, api_key: str, models_to_try: Optional[list[str]] = None) -> tuple:
     func = _PROBE_FUNCS.get(check_type, probe_openai_chat)
-    return func(url, api_key)
+    return func(url, api_key, models_to_try)
 
 
 # ── Model scanning ────────────────────────────────────────

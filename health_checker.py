@@ -46,11 +46,24 @@ def check_key_health(vendor_id: str, key_id: str, scan_models_flag: bool = True)
     api_url = vendor["api_url"]
     api_key = key_entry["api_key"]
     provider_id = vendor.get("provider", "openai")
-    prov = get_provider(provider_id)
-    check_type = prov["check_type"] if prov else "openai_chat"
+    
+    # Use vendor's endpoint_type if set, otherwise get from provider registry
+    endpoint_type = vendor.get("endpoint_type", "")
+    if endpoint_type:
+        check_type = f"openai_chat" if endpoint_type == "openai" else "anthropic"
+    else:
+        prov = get_provider(provider_id)
+        check_type = prov["check_type"] if prov else "openai_chat"
+
+    # Use key's existing models to test, if available
+    key_models = key_entry.get("models", [])
+    if key_models:
+        models_to_try = [m["id"] if isinstance(m, dict) else m for m in key_models]
+    else:
+        models_to_try = None
 
     start = time.time()
-    healthy, error_msg = probe_provider(check_type, api_url, api_key)
+    healthy, error_msg = probe_provider(check_type, api_url, api_key, models_to_try)
     latency_ms = int((time.time() - start) * 1000)
 
     models = []
@@ -100,7 +113,7 @@ def check_all_keys() -> list[dict]:
                 update_key_data(v["id"], k["id"], **updates)
                 _sync_key_to_openclaw(v, k, models_override=models)
             else:
-                ocp_key = f"{v['provider']}:{k['name']}"
+                ocp_key = f"{v['provider']}@{k['name']}"
                 _remove_from_openclaw(ocp_key)
                 old = f"{v['provider']}-{k['id']}"
                 if old != ocp_key:

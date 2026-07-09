@@ -101,13 +101,22 @@ def _is_provider_name(line: str) -> bool:
 def parse_batch_text(text: str) -> list[dict]:
     text = _normalize_text(text)
     lines = text.strip().split("\n")
-    urls_with_names: list[tuple[str, str]] = []
+    urls_with_names: list[tuple[str, str, str]] = []  # (url, provider, endpoint_type)
     keys: list[str] = []
     pending_name = ""
+    pending_endpoint_type = "openai"
 
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or stripped.startswith("//"):
+            continue
+
+        # Check for endpoint type directive
+        lower_stripped = stripped.lower()
+        if lower_stripped.startswith("endpoint:"):
+            ep_type = lower_stripped.split(":", 1)[1].strip()
+            if ep_type in ("openai", "anthropic"):
+                pending_endpoint_type = ep_type
             continue
 
         found_urls = _find_urls(stripped)
@@ -119,7 +128,8 @@ def parse_batch_text(text: str) -> list[dict]:
                 if pending_name:
                     prov = re.sub(r"[^a-zA-Z0-9_-]", "", pending_name.split()[0].lower())
                     pending_name = ""
-                urls_with_names.append((u, prov))
+                urls_with_names.append((u, prov, pending_endpoint_type))
+                pending_endpoint_type = "openai"  # Reset after use
         elif found_keys:
             keys.extend(found_keys)
             pending_name = ""
@@ -131,21 +141,23 @@ def parse_batch_text(text: str) -> list[dict]:
 
     entries: list[dict] = []
     if urls_with_names and keys:
-        for url, prov in urls_with_names:
+        for url, prov, ep_type in urls_with_names:
             for k in keys:
                 entries.append({
                     "provider": prov,
                     "name": _make_key_name(k),
                     "api_url": url,
                     "api_key": k,
+                    "endpoint_type": ep_type,
                 })
     elif urls_with_names:
-        for url, prov in urls_with_names:
+        for url, prov, ep_type in urls_with_names:
             entries.append({
                 "provider": prov,
                 "name": "(need key)",
                 "api_url": url,
                 "api_key": "",
+                "endpoint_type": ep_type,
             })
     elif keys:
         for k in keys:
@@ -154,6 +166,7 @@ def parse_batch_text(text: str) -> list[dict]:
                 "name": _make_key_name(k),
                 "api_url": "",
                 "api_key": k,
+                "endpoint_type": "openai",
             })
 
     deduped = []

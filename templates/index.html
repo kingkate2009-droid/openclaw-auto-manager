@@ -55,6 +55,8 @@
               <code id="detailVendorUrl" class="vendor-url"></code>
               <button class="btn-copy" onclick="copyText(_currentVendor.api_url)" title="Copy API URL">&#x2398;</button>
               <div class="detail-actions">
+                <button class="btn btn-sm" onclick="editVendor()" data-i18n="action.edit" style="display:none" id="editVendorBtn">{{ t('action.edit') }}</button>
+                <button id="deleteVendorBtn" class="btn btn-sm btn-danger" onclick="deleteVendor()" data-i18n="vendorList.deleteVendor" style="display:none">{{ t('vendorList.deleteVendor') }}</button>
                 <button class="btn btn-sm btn-primary" id="addKeyBtn" onclick="showAddKeyModal()" data-i18n="keyList.addKey" style="display:none">{{ t('keyList.addKey') }}</button>
               </div>
             </div>
@@ -82,6 +84,7 @@
                     <th data-i18n="table.apiKey">{{ t('table.apiKey') }}</th>
                     <th data-i18n="table.status">{{ t('table.status') }}</th>
                     <th data-i18n="table.latency">{{ t('table.latency') }}</th>
+                    <th data-i18n="table.models">{{ t('table.models') }}</th>
                     <th data-i18n="table.actions">{{ t('table.actions') }}</th>
                   </tr>
                 </thead>
@@ -202,6 +205,13 @@
         <label for="vendorApiUrl" data-i18n="vendorModal.apiUrl">{{ t('vendorModal.apiUrl') }}</label>
         <input type="text" id="vendorApiUrl" placeholder="https://api.openai.com/v1">
       </div>
+      <div class="form-group">
+        <label for="vendorEndpointType" data-i18n="vendorModal.endpointType">{{ t('vendorModal.endpointType') }}</label>
+        <select id="vendorEndpointType">
+          <option value="openai">OpenAI Compatible</option>
+          <option value="anthropic">Anthropic Compatible</option>
+        </select>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeVendorModal()" data-i18n="modal.cancel">{{ t('modal.cancel') }}</button>
@@ -258,6 +268,21 @@
       <button class="btn btn-secondary" onclick="closeBatchImportModal()" data-i18n="modal.cancel">{{ t('modal.cancel') }}</button>
       <button class="btn btn-secondary" id="batchParseBtn" onclick="parseBatchImport()" data-i18n="batchImport.parse">{{ t('batchImport.parse') }}</button>
       <button class="btn btn-primary" id="batchApplyBtn" onclick="applyBatchImport()" style="display:none" data-i18n="batchImport.import">{{ t('batchImport.import') }}</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modelsModal" onclick="closeModelsModal()">
+  <div class="modal modal-wide" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <h3 id="modelsModalTitle" data-i18n="modelsModal.title">{{ t('modelsModal.title') }}</h3>
+      <button class="btn-close" onclick="closeModelsModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div id="modelsModalList"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModelsModal()" data-i18n="modal.close">{{ t('modal.close') }}</button>
     </div>
   </div>
 </div>
@@ -348,6 +373,8 @@ async function selectVendor(id) {
   $('detailVendorName').textContent = v.name;
   $('detailVendorUrl').textContent = v.api_url;
   $('addKeyBtn').style.display = 'inline-block';
+  $('editVendorBtn').style.display = 'inline-block';
+  $('deleteVendorBtn').style.display = 'inline-block';
   $('noVendorSelected').style.display = 'none';
   $('keyTableContainer').style.display = 'block';
   $('keySearch').value = '';
@@ -387,6 +414,12 @@ function filterKeys() {
     }
     const latency = h.latency_ms ? h.latency_ms + 'ms' : '-';
 
+    const models = h.models && h.models.length ? h.models : (k.models || []);
+    const modelCount = models.length;
+    const modelStr = modelCount > 0
+      ? '<a href="#" onclick="showKeyModels(\'' + _currentVendor.id + '\',\'' + k.id + '\');return false" title="' + _('table.viewModels') + '">' + modelCount + '</a>'
+      : '0';
+
     const tr = document.createElement('tr');
     tr.dataset.keyId = k.id;
     if (!enabled) tr.style.opacity = '0.5';
@@ -396,6 +429,7 @@ function filterKeys() {
       '<td class="key-cell"><code class="key-value">' + esc(k.api_key.slice(0,8)) + '...' + esc(k.api_key.slice(-4)) + '</code> <button class="btn-copy" onclick="copyText(\'' + esc(k.api_key) + '\')" title="Copy">&#x2398;</button></td>',
       '<td class="status-cell"><span class="status-dot ' + statusClass + '"></span> ' + statusText + '</td>',
       '<td>' + latency + '</td>',
+      '<td class="models-cell">' + modelStr + '</td>',
       '<td class="actions-cell">',
         (enabled ? '<button class="btn btn-sm btn-warning" onclick="disableKey(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.disable') + '</button>' : '<button class="btn btn-sm" onclick="enableKey(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.enable') + '</button>'),
         '<button class="btn btn-sm" onclick="checkKeyHealth(\'' + _currentVendor.id + '\',\'' + k.id + '\')">' + _('action.check') + '</button>',
@@ -498,12 +532,52 @@ function showAddVendorModal() {
   $('vendorProvider').value = '';
   $('vendorProvider').style.display = 'none';
   $('vendorApiUrl').value = '';
+  $('vendorEndpointType').value = 'openai';
   loadProviderSelect();
+  $('vendorModal').classList.add('open');
+}
+
+function editVendor() {
+  if (!_currentVendor) return;
+  const v = _currentVendor;
+  $('vendorModalTitle').textContent = _('vendorModal.editTitle');
+  $('editVendorId').value = v.id;
+  $('vendorName').value = v.name;
+  $('vendorApiUrl').value = v.api_url;
+  $('vendorEndpointType').value = v.endpoint_type || 'openai';
+  loadProviderSelect();
+  const match = _knownProviders.find(function(x) { return x.id === v.provider; });
+  if (match) {
+    $('vendorProviderSelect').value = v.provider;
+    $('vendorProvider').style.display = 'none';
+  } else {
+    $('vendorProviderSelect').value = '__custom__';
+    $('vendorProvider').style.display = '';
+    $('vendorProvider').value = v.provider;
+  }
   $('vendorModal').classList.add('open');
 }
 
 function closeVendorModal() {
   $('vendorModal').classList.remove('open');
+}
+
+async function deleteVendor() {
+  if (!_currentVendor) return;
+  const keyCount = (_currentVendor.keys || []).length;
+  let msg;
+  if (keyCount > 0) {
+    msg = _('vendorList.confirmDeleteWithKeys').replace('{name}', _currentVendor.name).replace('{count}', keyCount);
+  } else {
+    msg = _('vendorList.confirmDelete').replace('{name}', _currentVendor.name);
+  }
+  if (!confirm(msg)) return;
+  await api('/api/vendors/' + _currentVendor.id, { method: 'DELETE' });
+  selectedVendorId = null;
+  _currentVendor = null;
+  $('keyDetail').style.display = 'none';
+  $('noVendorSelected').style.display = 'block';
+  loadVendors();
 }
 
 async function saveVendor() {
@@ -515,6 +589,7 @@ async function saveVendor() {
     name: $('vendorName').value.trim(),
     provider: providerVal || 'custom',
     api_url: $('vendorApiUrl').value.trim(),
+    endpoint_type: $('vendorEndpointType').value,
   };
   if (!data.name) { alert('Name is required'); return; }
   if (id) {
@@ -523,7 +598,11 @@ async function saveVendor() {
     await api('/api/vendors', { method: 'POST', body: JSON.stringify(data) });
   }
   closeVendorModal();
-  loadVendors();
+  if (id) {
+    await selectVendor(id);
+  } else {
+    loadVendors();
+  }
 }
 
 // ── Key Modal ───────────────────────────────────────────
@@ -566,7 +645,11 @@ async function saveKey() {
     await api('/api/vendors/' + selectedVendorId + '/keys', { method: 'POST', body: JSON.stringify(data) });
   }
   closeKeyModal();
-  loadVendors();
+  if (selectedVendorId) {
+    await selectVendor(selectedVendorId);
+  } else {
+    loadVendors();
+  }
 }
 
 async function editKey(vendorId, keyId) {
@@ -588,14 +671,46 @@ async function deleteKey(vendorId, keyId) {
   loadVendors();
 }
 
+function showKeyModels(vendorId, keyId) {
+  const k = _allKeysData.find(function(x) { return x.id === keyId; });
+  if (!k) return;
+  const ck = vendorId + ':' + keyId;
+  const h = _allHealthData[ck] || {};
+  const models = h.models && h.models.length ? h.models : (k.models || []);
+  const list = $('modelsModalList');
+  if (!models.length) {
+    list.innerHTML = '<p>' + _('modelsModal.noModels') + '</p>';
+  } else {
+    const items = models.map(function(m) {
+      const name = typeof m === 'string' ? m : (m.id || m.name || JSON.stringify(m));
+      return '<div class="model-item">' + esc(name) + '</div>';
+    }).join('');
+    list.innerHTML = '<div class="model-list">' + items + '</div>';
+  }
+  $('modelsModalTitle').textContent = _('modelsModal.title') + ' (' + models.length + ')';
+  $('modelsModal').classList.add('open');
+}
+
+function closeModelsModal() {
+  $('modelsModal').classList.remove('open');
+}
+
 async function enableKey(vendorId, keyId) {
   await api('/api/vendors/' + vendorId + '/keys/' + keyId + '/enable', { method: 'POST' });
-  loadVendors();
+  if (selectedVendorId) {
+    await selectVendor(selectedVendorId);
+  } else {
+    loadVendors();
+  }
 }
 
 async function disableKey(vendorId, keyId) {
   await api('/api/vendors/' + vendorId + '/keys/' + keyId + '/disable', { method: 'POST' });
-  loadVendors();
+  if (selectedVendorId) {
+    await selectVendor(selectedVendorId);
+  } else {
+    loadVendors();
+  }
 }
 
 async function checkKeyHealth(vendorId, keyId) {
@@ -612,7 +727,11 @@ async function checkKeyHealth(vendorId, keyId) {
     showToast(_('toast.checkFail') + ': ' + e, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = _('action.check'); }
-    loadVendors();
+    if (selectedVendorId) {
+      await selectVendor(selectedVendorId);
+    } else {
+      loadVendors();
+    }
   }
 }
 
@@ -649,7 +768,11 @@ async function checkAllHealth() {
     showToast(_('toast.checkFail') + ': ' + e, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = _('toolbar.checkAllHealth'); }
-    loadVendors();
+    if (selectedVendorId) {
+      await selectVendor(selectedVendorId);
+    } else {
+      loadVendors();
+    }
   }
 }
 

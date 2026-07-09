@@ -1,8 +1,10 @@
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +13,7 @@ OPENCLAW_CONFIG_PATH = OPENCLAW_CONFIG_DIR / "openclaw.json"
 AGENT_DIR = OPENCLAW_CONFIG_DIR / "agents" / "main" / "agent"
 AGENT_AUTH_PATH = AGENT_DIR / "auth-profiles.json"
 AGENT_MODELS_PATH = AGENT_DIR / "models.json"
+AGENT_SQLITE_PATH = AGENT_DIR / "openclaw-agent.sqlite"
 PROFILES_DIR = Path.home() / ".openclaw-auto-manager"
 DATA_PATH = PROFILES_DIR / "data.json"
 
@@ -81,6 +84,23 @@ def _save_auth_profiles(data: dict) -> None:
     AGENT_DIR.mkdir(parents=True, exist_ok=True)
     with open(AGENT_AUTH_PATH, "w") as f:
         json.dump(data, f, indent=2)
+    _sync_auth_to_sqlite(data)
+
+
+def _sync_auth_to_sqlite(auth_data: dict) -> None:
+    if not AGENT_SQLITE_PATH.exists():
+        return
+    try:
+        store_json = json.dumps(auth_data)
+        now_ms = int(time.time() * 1000)
+        with sqlite3.connect(str(AGENT_SQLITE_PATH)) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO auth_profile_store (store_key, store_json, updated_at) VALUES (?, ?, ?)",
+                ("primary", store_json, now_ms),
+            )
+            conn.commit()
+    except Exception:
+        pass
 
 
 def _load_agent_models() -> dict:
@@ -109,13 +129,14 @@ def get_vendor(vendor_id: str) -> Optional[dict]:
     return None
 
 
-def add_vendor(name: str, provider: str, api_url: str) -> dict:
+def add_vendor(name: str, provider: str, api_url: str, endpoint_type: str = "openai") -> dict:
     data = _load_data()
     vendor = {
         "id": _next_id(data.get("vendors", [])),
         "name": name,
         "provider": provider,
         "api_url": api_url.rstrip("/"),
+        "endpoint_type": endpoint_type,  # "openai" or "anthropic"
         "keys": [],
     }
     data["vendors"].append(vendor)
@@ -127,7 +148,7 @@ def update_vendor(vendor_id: str, **kwargs) -> Optional[dict]:
     data = _load_data()
     for v in data["vendors"]:
         if v["id"] == vendor_id:
-            for key in ("name", "provider", "api_url"):
+            for key in ("name", "provider", "api_url", "endpoint_type"):
                 if key in kwargs:
                     v[key] = kwargs[key]
             if "api_url" in kwargs:
@@ -150,9 +171,9 @@ def delete_vendor(vendor_id: str) -> bool:
     _save_data(data)
     if removed:
         for k in removed.get("keys", []):
-            _remove_from_openclaw(f"{removed['provider']}:{k['name']}")
+            _remove_from_openclaw(f"{removed['provider']}@{k['name']}")
             old = f"{removed['provider']}-{k['id']}"
-            if old != f"{removed['provider']}:{k['name']}":
+            if old != f"{removed['provider']}@{k['name']}":
                 _remove_from_openclaw(old)
     return True
 
@@ -200,9 +221,9 @@ def update_key(vendor_id: str, key_id: str, **kwargs) -> Optional[dict]:
                     if k.get("enabled", True):
                         _sync_key_to_openclaw(v, k)
                     else:
-                        _remove_from_openclaw(f"{v['provider']}:{k['name']}")
+                        _remove_from_openclaw(f"{v['provider']}@{k['name']}")
                         old = f"{v['provider']}-{k['id']}"
-                        if old != f"{v['provider']}:{k['name']}":
+                        if old != f"{v['provider']}@{k['name']}":
                             _remove_from_openclaw(old)
                         # Remove from agents.defaults.models
                         cfg = _load_openclaw_config()
@@ -250,12 +271,40 @@ def delete_key(vendor_id: str, key_id: str) -> bool:
     return False
 
 
+def delete_vendor(vendor_id: str) -> bool:
+    data = _load_data()
+    for i, v in enumerate(data["vendors"]):
+        if v["id"] == vendor_id:
+            # Remove all keys from OpenClaw first
+            for key in v.get("keys", []):
+                ocp_key = f"{v['provider']}@{key['name']}"
+                _remove_from_openclaw(ocp_key)
+                old_key = f"{v['provider']}-{key['id']}"
+                if old_key != ocp_key:
+                    _remove_from_openclaw(old_key)
+            # Remove the aggregate entry if exists
+            _remove_from_openclaw(v["provider"])
+            # Remove from vendors list
+            data["vendors"].pop(i)
+            _save_data(data)
+            return True
+    return False
+
+
 # ── OpenClaw Sync ────────────────────────────────────────
 
+def _ocp_url(base_url: str) -> str:
+    url = base_url.rstrip("/")
+    if not any(url.endswith(f"/v{i}") for i in range(1, 5)):
+        url += "/v1"
+    return url
+
+
 def _sync_key_to_openclaw(vendor: dict, key_entry: dict, models_override: Optional[list[str]] = None) -> None:
-    ocp_key = f"{vendor['provider']}:{key_entry['name']}"
+    ocp_key = f"{vendor['provider']}@{key_entry['name']}"
     old_key = f"{vendor['provider']}-{key_entry['id']}"
     cfg = _load_openclaw_config()
+    ocp_base_url = _ocp_url(vendor["api_url"])
 
     if "models" not in cfg:
         cfg["models"] = {}
@@ -271,7 +320,7 @@ def _sync_key_to_openclaw(vendor: dict, key_entry: dict, models_override: Option
     # Write key-level entry for the provider:key combo
     provider_entry = {
         "apiKey": key_entry["api_key"],
-        "baseUrl": vendor["api_url"],
+        "baseUrl": ocp_base_url,
         "models": models_obj,
     }
     cfg["models"]["providers"][ocp_key] = provider_entry
@@ -280,10 +329,10 @@ def _sync_key_to_openclaw(vendor: dict, key_entry: dict, models_override: Option
     # NOTE: Aggregate entry has NO apiKey — OpenClaw reads the key from per-key entries
     provider_name = vendor["provider"]
     all_models = {}
-    agg_base_url = vendor["api_url"]
+    agg_base_url = ocp_base_url
     for pkey, pval in cfg["models"]["providers"].items():
         # Only aggregate from per-key entries (e.g. "xiaomi-token-plan:暗"), not the aggregate itself
-        if ":" in pkey and pkey.split(":")[0] == provider_name:
+        if "@" in pkey and pkey.split("@")[0] == provider_name:
             for m in pval.get("models", []):
                 mid = m["id"] if isinstance(m, dict) else m
                 if mid not in all_models:
@@ -345,15 +394,15 @@ def _sync_key_to_openclaw(vendor: dict, key_entry: dict, models_override: Option
         mdata.setdefault("providers", {})
         # Per-key provider entry
         mdata["providers"][ocp_key] = {
-            "baseUrl": vendor["api_url"],
+            "baseUrl": ocp_base_url,
             "apiKey": key_entry["api_key"],
             "models": models_obj,
         }
         # Aggregated provider entry (rebuild from per-key entries only)
         agg_models = {}
-        agg_base_url = vendor["api_url"]
+        agg_base_url = ocp_base_url
         for pk, pv in mdata["providers"].items():
-            if ":" in pk and pk.split(":")[0] == provider_name:
+            if "@" in pk and pk.split("@")[0] == provider_name:
                 for m in pv.get("models", []):
                     mid = m["id"] if isinstance(m, dict) else m
                     if mid not in agg_models:
@@ -426,7 +475,7 @@ def reconcile_openclaw() -> None:
     for v in vendors:
         for k in v.get("keys", []):
             if k.get("enabled", True):
-                expected_key_ids.add(f"{v['provider']}:{k['name']}")
+                expected_key_ids.add(f"{v['provider']}@{k['name']}")
                 expected_providers.add(v["provider"])
 
     providers = cfg.get("models", {}).get("providers", {})
@@ -436,7 +485,7 @@ def reconcile_openclaw() -> None:
     changed = False
     # Remove stale key-level entries from models.providers
     for ocp_key in list(providers.keys()):
-        if ":" not in ocp_key:
+        if "@" not in ocp_key:
             continue
         if ocp_key not in expected_key_ids:
             del providers[ocp_key]
@@ -473,10 +522,10 @@ def reconcile_openclaw() -> None:
 
     # Remove aggregate entries for providers with no enabled keys
     for ocp_key in list(providers.keys()):
-        if ":" not in ocp_key:
+        if "@" not in ocp_key:
             pname = ocp_key
             has_enabled_key = any(
-                k.split(":")[0] == pname for k in providers if ":" in k
+                k.split("@")[0] == pname for k in providers if "@" in k
             )
             if not has_enabled_key:
                 del providers[ocp_key]
@@ -486,14 +535,14 @@ def reconcile_openclaw() -> None:
     # Re-aggregate provider-level model entries (no apiKey — per-key entries hold the key)
     provider_model_names = set()
     for ocp_key, entry in list(providers.items()):
-        pname = ocp_key.split(":")[0]
-        if ":" in ocp_key and pname:
+        pname = ocp_key.split("@")[0]
+        if "@" in ocp_key and pname:
             provider_model_names.add(pname)
     for pname in provider_model_names:
         all_models = {}
         base_url = None
         for ocp_key, entry in providers.items():
-            if ocp_key.split(":")[0] == pname:
+            if ocp_key.split("@")[0] == pname:
                 for m in entry.get("models", []):
                     mid = m["id"] if isinstance(m, dict) else m
                     if mid not in all_models:
@@ -554,13 +603,13 @@ def reconcile_openclaw() -> None:
         # Rebuild aggregate entries from per-key entries
         agg_providers = set()
         for pk in list(mdata.get("providers", {}).keys()):
-            if ":" in pk:
-                agg_providers.add(pk.split(":")[0])
+            if "@" in pk:
+                agg_providers.add(pk.split("@")[0])
         for pname in agg_providers:
             agg_models = {}
             agg_base_url = ""
             for pk, pv in mdata.get("providers", {}).items():
-                if ":" in pk and pk.split(":")[0] == pname:
+                if "@" in pk and pk.split("@")[0] == pname:
                     for m in pv.get("models", []):
                         mid = m["id"] if isinstance(m, dict) else m
                         if mid not in agg_models:
@@ -604,7 +653,7 @@ def _collect_key_references(cfg: dict) -> list[tuple[str, str, str]]:
             if ocp_key in seen:
                 continue
             if not base_url and not api_key_val:
-                parts = ocp_key.split(":", 1)
+                parts = ocp_key.split("@", 1)
                 if len(parts) == 2:
                     sub_provider = parts[0]
                     sub_cfg = providers.get(sub_provider, {})
@@ -643,7 +692,7 @@ def sync_from_openclaw() -> dict:
             }
             data["vendors"].append(vendor)
 
-        key_name = ocp_key.split(":")[-1] if ":" in ocp_key else ocp_key.split("-")[-1]
+        key_name = ocp_key.split("@")[-1] if "@" in ocp_key else ocp_key.split("-")[-1]
 
         found = False
         for k in vendor.get("keys", []):
